@@ -7,6 +7,7 @@ No Google SDK is required; networking uses the Python standard library.
 """
 from __future__ import annotations
 
+# Standard library
 import base64
 import hashlib
 import json
@@ -17,8 +18,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import webbrowser
-from pathlib import Path
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
 from typing import Any
 
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"

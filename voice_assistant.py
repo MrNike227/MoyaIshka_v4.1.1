@@ -11,6 +11,8 @@ import time
 import wave
 from pathlib import Path
 
+from temporary_storage import get_temp_directory
+
 _SPEECH_LOCK = threading.RLock()
 _PIPER_CACHE: dict[str, object] = {}
 _PIPER_CACHE_LOCK = threading.RLock()
@@ -141,7 +143,7 @@ def _speak_with_piper(text: str, model_path: Path) -> None:
     except ImportError as exc:
         raise RuntimeError("В Windows не найден встроенный модуль воспроизведения звука.") from exc
     voice = _load_piper_voice(model_path)
-    with tempfile.TemporaryDirectory(prefix="ISH_TTS_") as temp_dir:
+    with tempfile.TemporaryDirectory(prefix="ISH_TTS_", dir=str(get_temp_directory("voice"))) as temp_dir:
         output_path = Path(temp_dir) / "speech.wav"
         with wave.open(str(output_path), "wb") as wav_file:
             voice.synthesize_wav(text[:5000], wav_file)

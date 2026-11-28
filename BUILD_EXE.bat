@@ -2,7 +2,7 @@
 setlocal EnableExtensions
 chcp 65001 >nul
 cd /d "%~dp0"
-echo Building ISH 4.3.0 onedir Windows application...
+echo Building ISH 4.3.1 onedir Windows application...
 
 if defined MOYA_BUILD_PYTHON (
   set "PY=%MOYA_BUILD_PYTHON%"
@@ -50,6 +50,28 @@ if exist "dist\ISH.zip.sha256" del /q "dist\ISH.zip.sha256"
   --add-data "app_icon_32.png;." ^
   --add-data "app_icon_16.png;." ^
   --add-data "main.py;source_project" ^
+  --add-data "conversation_store.py;source_project" ^
+  --add-data "secure_storage.py;source_project" ^
+  --add-data "app_runtime.py;source_project" ^
+  --add-data "backup_interface.py;source_project" ^
+  --add-data "chat_interface.py;source_project" ^
+  --add-data "cloud_interface.py;source_project" ^
+  --add-data "memory_interface.py;source_project" ^
+  --add-data "plugin_interface.py;source_project" ^
+  --add-data "research_interface.py;source_project" ^
+  --add-data "self_improvement_interface.py;source_project" ^
+  --add-data "settings_interface.py;source_project" ^
+  --add-data "ui_components.py;source_project" ^
+  --add-data "update_interface.py;source_project" ^
+  --add-data "voice_interface.py;source_project" ^
+  --add-data "app_configuration.py;source_project" ^
+  --add-data "app_helpers.py;source_project" ^
+  --add-data "app_startup.py;source_project" ^
+  --add-data "app_initialization_interface.py;source_project" ^
+  --add-data "app_lifecycle_interface.py;source_project" ^
+  --add-data "model_settings_interface.py;source_project" ^
+  --add-data "ui_pages_interface.py;source_project" ^
+  --add-data "ui_theme_interface.py;source_project" ^
   --add-data "context_engine.py;source_project" ^
   --add-data "package_onedir.py;source_project" ^
   --add-data "TEST_WINDOWS10.ps1;source_project" ^
@@ -69,9 +91,11 @@ if exist "dist\ISH.zip.sha256" del /q "dist\ISH.zip.sha256"
   --add-data "windows_sandbox.py;source_project" ^
   --add-data "background_developer.py;source_project" ^
   --add-data "module_dependency_analyzer.py;source_project" ^
+  --add-data "architecture_knowledge.py;source_project" ^
   --add-data "github_pr.py;source_project" ^
   --add-data "updater.py;source_project" ^
   --add-data "updater_helper.py;source_project" ^
+  --add-data "temporary_storage.py;source_project" ^
   --add-data "web_research.py;source_project" ^
   --add-data "cloud_sync.py;source_project" ^
   --add-data "google_drive_sync.py;source_project" ^
@@ -95,7 +119,7 @@ if exist "dist\ISH.zip.sha256" del /q "dist\ISH.zip.sha256"
   --add-data "PLAN_4.2.7_RU.md;source_project" ^
   --add-data "PLAN_4.2.8_RU.md;source_project" ^
   --add-data "PLAN_4.2.9_RU.md;source_project" ^
-  --add-data "PLAN_4.3.0_RU.md;source_project" ^
+  --add-data "PLAN_4.3.1_RU.md;source_project" ^
   --add-data "LICENSE.txt;source_project" ^
   --add-data "THIRD_PARTY_NOTICES.md;source_project" ^
   --add-data "licenses/GPL-3.0.txt;source_project/licenses" ^
@@ -129,9 +153,9 @@ if errorlevel 1 goto dependency_failed
 if errorlevel 1 goto crypto_bundle_failed
 %PY% -c "import shutil; shutil.copy2('TEST_WINDOWS10.ps1', 'dist/ISH/TEST_WINDOWS10.ps1')"
 if errorlevel 1 goto failed
-%PY% package_onedir.py --dist-dir "dist\ISH" --output "dist\ISH.zip" --version 4.3.0
+%PY% package_onedir.py --dist-dir "dist\ISH" --output "dist\ISH.zip" --version 4.3.1
 if errorlevel 1 goto failed
-%PY% -c "from updater_helper import validate_app_directory; validate_app_directory('dist/ISH', '4.3.0')"
+%PY% -c "from updater_helper import validate_app_directory; validate_app_directory('dist/ISH', '4.3.1')"
 if errorlevel 1 goto failed
 
 echo.

@@ -7,7 +7,13 @@ from pathlib import Path
 
 from package_onedir import build_package, SHA256_CHUNK_BYTES
 from updater import _extract_package, _safe_member_path, validate_app_folder
-from updater_helper import validate_app_directory, _directory_updater_script
+from updater_helper import (
+    delete_application_copy,
+    scan_application_copies,
+    validate_app_directory,
+    _directory_updater_script,
+    _powershell_script,
+)
 
 
 def write_fake_app(root: Path, version: str = "4.2.1") -> Path:
@@ -177,6 +183,101 @@ class OnedirUpdateTests(unittest.TestCase):
         self.assertNotIn("Move-Item -LiteralPath $TargetDir -Destination $BackupDir", script)
         self.assertIn("/MT:16", script)
         self.assertNotIn("/MT:8", script)
+
+    def test_successful_single_exe_update_cleans_rollback_copies_after_receipt(self):
+        script = _powershell_script()
+        receipt_check = script.index(
+            "if (-not $confirmed) { throw 'Новая версия не подтвердила запуск за 90 секунд. Выполняется откат.' }"
+        )
+        cleanup = script.index("Удалена резервная копия после подтверждения обновления")
+        self.assertGreater(cleanup, receipt_check)
+        self.assertIn("foreach ($obsolete in @($backup, $oldSwap))", script)
+        self.assertIn("ПРЕДУПРЕЖДЕНИЕ: не удалось удалить резервную копию", script)
+
+    def test_successful_onedir_update_cleans_backup_and_staging_after_receipt(self):
+        script = _directory_updater_script()
+        receipt_check = script.index("if (-not $confirmed) { throw 'Новая версия не подтвердила запуск за 90 секунд.' }")
+        backup_cleanup = script.index('Log "Резервная папка старой версии удалена: $BackupDir"')
+        staging_cleanup = script.index("Remove-Item -LiteralPath $StagedDir -Recurse -Force")
+        self.assertGreater(backup_cleanup, receipt_check)
+        self.assertGreater(staging_cleanup, receipt_check)
+        self.assertIn("Remove-Item -LiteralPath $BackupDir -Recurse -Force -ErrorAction Stop", script)
+        self.assertIn("ISH_update_*", script)
+        self.assertIn("ПРЕДУПРЕЖДЕНИЕ: не удалось удалить резервную папку", script)
+
+    def test_moyaishka_named_copy_is_found_in_legacy_folder(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            home = root / "home"
+            local = root / "local"
+            roaming = root / "roaming"
+            home.mkdir()
+            local.mkdir()
+            roaming.mkdir()
+            legacy = local / "MoyaIshka"
+            internal = legacy / "_internal"
+            internal.mkdir(parents=True)
+            executable = legacy / "Moyaishka.exe"
+            executable.write_bytes(b"old moyaishka")
+            (internal / "python311.dll").write_bytes(b"runtime")
+
+            results = scan_application_copies(
+                current_exe=home / "active" / "ISH.exe",
+                local_app_data=local,
+                roaming_app_data=roaming,
+                user_home=home,
+            )
+            found_paths = {Path(item["path"]) for item in results}
+            self.assertIn(executable.resolve(), found_paths)
+
+    def test_delete_moyaishka_onedir_copy_removes_its_program_folder(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            app = root / "MoyaIshka"
+            internal = app / "_internal"
+            internal.mkdir(parents=True)
+            executable = app / "Moyaishka.exe"
+            executable.write_bytes(b"old app")
+            (internal / "python311.dll").write_bytes(b"runtime")
+
+            delete_application_copy(executable, current_exe=root / "current" / "ISH.exe")
+
+            self.assertFalse(app.exists())
+
+    def test_delete_legacy_moyaishka_exe_preserves_unrelated_folder_files(self):
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp) / "MoyaIshka"
+            folder.mkdir()
+            executable = folder / "Moyaishka.exe"
+            executable.write_bytes(b"legacy exe")
+            notes = folder / "notes.txt"
+            notes.write_text("user file", encoding="utf-8")
+
+            delete_application_copy(executable)
+
+            self.assertFalse(executable.exists())
+            self.assertTrue(notes.is_file())
+            self.assertTrue(folder.is_dir())
+
+    def test_deleting_copy_in_active_onedir_folder_never_removes_active_folder(self):
+        with tempfile.TemporaryDirectory() as temp:
+            app = Path(temp) / "ISH"
+            internal = app / "_internal"
+            internal.mkdir(parents=True)
+            active = app / "ISH.exe"
+            active.write_bytes(b"active")
+            duplicate = app / "MoyaIshka.exe"
+            duplicate.write_bytes(b"duplicate")
+            (app / "build_manifest.json").write_text(
+                json.dumps({"entrypoint": "MoyaIshka.exe", "files": []}),
+                encoding="utf-8",
+            )
+
+            delete_application_copy(duplicate, current_exe=active)
+
+            self.assertTrue(active.is_file())
+            self.assertTrue(app.is_dir())
+            self.assertFalse(duplicate.exists())
 
     def test_download_extract_and_hash_buffers_are_fifty_megabytes(self):
         from updater import (

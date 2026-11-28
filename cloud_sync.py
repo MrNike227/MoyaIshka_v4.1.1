@@ -7,12 +7,12 @@ vault passphrase are protected with Windows DPAPI on Windows installations.
 """
 from __future__ import annotations
 
+# Standard library
 import base64
-import ctypes
+import hashlib
 import json
 import os
 import secrets
-import hashlib
 import time
 import zlib
 from datetime import datetime, timezone
@@ -25,6 +25,8 @@ from urllib.request import Request, urlopen
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
+
+from secure_storage import DATA_BLOB as _DATA_BLOB, dpapi_transform as _dpapi_transform
 
 # Keep the remote table and AAD stable: existing encrypted ISH/MoyaIshka vault rows must remain decryptable.
 APP_UA = "ISH/4.2.9-cloud"
@@ -126,30 +128,9 @@ def decrypt_vault(row: dict[str, Any], passphrase: str) -> dict[str, Any]:
     return payload
 
 
-class _DATA_BLOB(ctypes.Structure):
-    _fields_ = [("cbData", ctypes.c_uint32), ("pbData", ctypes.POINTER(ctypes.c_ubyte))]
-
-
+# Compatibility wrapper keeps the historical private API and cloud-specific label.
 def _dpapi(data: bytes, protect: bool) -> bytes:
-    if os.name != "nt":
-        raise OSError("Защита DPAPI доступна только в Windows.")
-    crypt32 = ctypes.windll.crypt32
-    kernel32 = ctypes.windll.kernel32
-    source_buffer = ctypes.create_string_buffer(data)
-    source = _DATA_BLOB(len(data), ctypes.cast(source_buffer, ctypes.POINTER(ctypes.c_ubyte)))
-    destination = _DATA_BLOB()
-    flags = 0x1  # CRYPTPROTECT_UI_FORBIDDEN
-    if protect:
-        ok = crypt32.CryptProtectData(ctypes.byref(source), ctypes.c_wchar_p("ISH cloud session"), None, None, None, flags, ctypes.byref(destination))
-    else:
-        ok = crypt32.CryptUnprotectData(ctypes.byref(source), None, None, None, None, flags, ctypes.byref(destination))
-    if not ok:
-        raise ctypes.WinError()
-    try:
-        return ctypes.string_at(destination.pbData, destination.cbData)
-    finally:
-        kernel32.LocalFree(ctypes.cast(destination.pbData, ctypes.c_void_p))
-
+    return _dpapi_transform(data, protect, description="ISH cloud session")
 
 def save_protected_session(path: str | Path, session: dict[str, Any]) -> bool:
     """Remember session on this Windows account only; never write plaintext secrets."""

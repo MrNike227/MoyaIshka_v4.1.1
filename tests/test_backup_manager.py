@@ -1,3 +1,4 @@
+import errno
 import json
 import os
 import sqlite3
@@ -5,10 +6,11 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest.mock import patch
 
 from backup_manager import (
     BackupError, copy_verified_backups, create_backup, inspect_backup,
-    maybe_create_daily_backup, restore_backup,
+    maybe_create_daily_backup, restore_backup, _move_restore_path,
 )
 
 
@@ -49,6 +51,22 @@ class BackupManagerTests(unittest.TestCase):
             return db.execute("SELECT body FROM messages").fetchone()[0]
         finally:
             db.close()
+
+    def test_restore_move_falls_back_when_container_and_data_are_on_different_volumes(self):
+        source_root = Path(self.temp.name) / "container_temp"
+        target_root = Path(self.temp.name) / "data_volume"
+        source_root.mkdir()
+        target_root.mkdir()
+        source = source_root / "assistant.db"
+        destination = target_root / "assistant.db"
+        source.write_bytes(b"verified database snapshot")
+
+        cross_device = OSError(errno.EXDEV, "cross-device link")
+        with patch("backup_manager.os.replace", side_effect=cross_device):
+            _move_restore_path(source, destination)
+
+        self.assertEqual(destination.read_bytes(), b"verified database snapshot")
+        self.assertFalse(source.exists())
 
     def test_backup_contains_memory_history_knowledge_skills_and_plugins(self):
         archive = create_backup(self.root, app_version="4.1.9")

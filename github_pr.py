@@ -6,19 +6,21 @@ operation. A proposal is first rebased against the selected GitHub base file.
 """
 from __future__ import annotations
 
+# Standard library
 import base64
-import json
-import re
 import hashlib
+import json
 import os
+import re
 import stat
-from pathlib import Path, PurePosixPath
 import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+from pathlib import Path, PurePosixPath
 from typing import Any, Callable
 
+# Application module
 from self_improvement import apply_unified_diff, split_multi_file_unified_diff
 
 API_ROOT = "https://api.github.com"

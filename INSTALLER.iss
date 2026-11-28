@@ -4,7 +4,7 @@
 [Setup]
 AppId={{C6DBA092-A00B-4E45-9C02-67B8D543A2A1}
 AppName=ISH
-AppVersion=4.3.0
+AppVersion=4.3.1
 AppPublisher=ISH
 DisableProgramGroupPage=yes
 DefaultDirName={localappdata}\Programs\ISH_Container\App

@@ -2,20 +2,23 @@
 """Provision and launch Windows Sandbox for untrusted self-improvement tests."""
 from __future__ import annotations
 
+# Standard library
 import base64
 import ctypes
 import json
 import os
 import platform
 import shutil
-import subprocess
 import stat
+import subprocess
 import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from xml.sax.saxutils import escape
+
+from temporary_storage import get_temp_directory
 
 FEATURE_NAME = "Containers-DisposableClientVM"
 MINIMUM_BUILD = 18362
@@ -268,7 +271,7 @@ def request_windows_sandbox_install() -> Path:
     if not powershell.is_file():
         raise RuntimeError("Не найден Windows PowerShell.")
 
-    work = Path(tempfile.mkdtemp(prefix="moya_sandbox_setup_"))
+    work = Path(tempfile.mkdtemp(prefix="moya_sandbox_setup_", dir=str(get_temp_directory("sandbox_setup"))))
     result_path = work / "install_result.json"
     result_literal = str(result_path).replace("'", "''")
     # Use an inline encoded command rather than elevating a script from the
@@ -303,8 +306,10 @@ $data | ConvertTo-Json -Compress | Set-Content -LiteralPath $resultPath -Encodin
         shell.restype = ctypes.c_void_p
         code = shell(None, "runas", str(powershell), parameters, str(work), 1)
     except Exception as exc:
+        shutil.rmtree(work, ignore_errors=True)
         raise RuntimeError(f"Не удалось запросить права администратора: {exc}") from exc
     if int(code or 0) <= 32:
+        shutil.rmtree(work, ignore_errors=True)
         raise RuntimeError("Установка отменена или Windows не смогла открыть запрос прав администратора.")
     return result_path
 
@@ -322,6 +327,15 @@ def wait_for_install_result(result_path: str | Path, timeout_seconds: int = 900)
                 payload = json.loads(path.read_text(encoding="utf-8-sig"))
                 if not isinstance(payload, dict) or not isinstance(payload.get("success"), bool):
                     raise RuntimeError("Windows вернула результат установки в неизвестном формате.")
+                # A completed UAC request no longer needs its result JSON. Keep
+                # timed-out folders for diagnosis, but remove successful/failed
+                # completed work folders from the container Temp tree.
+                try:
+                    setup_root = get_temp_directory("sandbox_setup").resolve()
+                    if path.parent.parent.resolve() == setup_root and path.parent.name.startswith("moya_sandbox_setup_"):
+                        shutil.rmtree(path.parent, ignore_errors=True)
+                except OSError:
+                    pass
                 return payload
             except (OSError, ValueError):
                 pass

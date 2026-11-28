@@ -12,7 +12,7 @@ import json
 import os
 import urllib.request
 from pathlib import Path
-from typing import Callable, Any
+from typing import Any, Callable
 
 REPOSITORY = "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0"
 MAX_MODEL_BYTES = 100 * 1024 * 1024

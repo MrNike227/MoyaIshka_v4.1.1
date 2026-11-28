@@ -16,6 +16,7 @@ from typing import Any, Callable
 
 from improvement_delivery import _is_test_module_path, _safe_relative_path, _write_text_atomic
 from self_improvement import split_multi_file_unified_diff, apply_multi_file_unified_diff
+from temporary_storage import get_temp_directory
 from windows_sandbox import _is_reparse_point
 
 
@@ -399,7 +400,7 @@ def test_change_bundle(
         "tests_run": 0, "failures": 0, "errors": 0, "stdout": "", "stderr": "",
         "error": "", "sandboxed": False, "sandbox": "Windows Sandbox",
     }
-    workspace = Path(tempfile.mkdtemp(prefix="moya_sandbox_test_"))
+    workspace = Path(tempfile.mkdtemp(prefix="moya_sandbox_test_", dir=str(get_temp_directory("self_development"))))
     keep_workspace = False
     try:
         readonly_root = workspace / "readonly"
@@ -586,7 +587,6 @@ def _is_windows_sandbox_guest() -> bool:
 def run_proposal_tests_cli(project_root: str | Path, result_path: str | Path) -> int:
     """Entry point used by the frozen EXE guest runner to test source files from the mapped project."""
     import importlib.machinery
-    import os
     import unittest
 
     if not _is_windows_sandbox_guest():

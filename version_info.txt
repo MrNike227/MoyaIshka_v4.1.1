@@ -1,8 +1,8 @@
 # UTF-8 version resource for the Windows EXE.
 VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers=(4, 3, 0, 0),
-    prodvers=(4, 3, 0, 0),
+    filevers=(4, 3, 1, 0),
+    prodvers=(4, 3, 1, 0),
     mask=0x3f,
     flags=0x0,
     OS=0x40004,
@@ -17,11 +17,11 @@ VSVersionInfo(
         [
           StringStruct('CompanyName', 'ISH'),
           StringStruct('FileDescription', 'ISH Desktop Assistant'),
-          StringStruct('FileVersion', '4.3.0'),
+          StringStruct('FileVersion', '4.3.1'),
           StringStruct('InternalName', 'ISH'),
           StringStruct('OriginalFilename', 'ISH.exe'),
           StringStruct('ProductName', 'ISH'),
-          StringStruct('ProductVersion', '4.3.0')
+          StringStruct('ProductVersion', '4.3.1')
         ]
       )
     ]),

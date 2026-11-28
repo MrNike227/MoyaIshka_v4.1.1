@@ -1,4 +1,4 @@
-name: Build Windows release — verified 4.3.0 onedir
+name: Build Windows release — verified 4.3.1 onedir
 
 on:
   push:
@@ -93,7 +93,7 @@ jobs:
 
       - name: Verify package manifest and all file hashes
         shell: pwsh
-        run: python -c "from updater_helper import validate_app_directory; print('Validated package:', validate_app_directory('dist/ISH', '4.3.0')['version'])"
+        run: python -c "from updater_helper import validate_app_directory; print('Validated package:', validate_app_directory('dist/ISH', '4.3.1')['version'])"
 
       - name: Verify onedir EXE starts without Python on PATH
         shell: pwsh
@@ -123,13 +123,13 @@ jobs:
           if (-not (Test-Path 'dist/ISH.zip')) { throw 'Onedir ZIP package was not created.' }
           if (-not (Test-Path 'dist/ISH.zip.sha256')) { throw 'ZIP SHA-256 sidecar was not created.' }
           $manifest = Get-Content 'dist/ISH/build_manifest.json' -Raw | ConvertFrom-Json
-          if ($manifest.version -ne '4.3.0') { throw "Unexpected package version: $($manifest.version)" }
+          if ($manifest.version -ne '4.3.1') { throw "Unexpected package version: $($manifest.version)" }
           if (@($manifest.files).Count -lt 100) { throw 'Onedir manifest unexpectedly contains too few runtime files.' }
 
       - name: Upload onedir package artifact
         uses: actions/upload-artifact@v6
         with:
-          name: ISH-4.3.0-onedir
+          name: ISH-4.3.1-onedir
           path: |
             dist/ISH.zip
             dist/ISH.zip.sha256
@@ -137,11 +137,11 @@ jobs:
           retention-days: 14
 
       - name: Create release or replace assets
-        if: github.ref == 'refs/tags/v4.3.0' || (github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[refresh-v4.3.0]'))
+        if: github.ref == 'refs/tags/v4.3.1' || (github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[refresh-v4.3.1]'))
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'v4.3.0' }}
+          RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'v4.3.1' }}
         run: |
           $tag = $env:RELEASE_TAG
           gh release view "$tag" --repo "$env:GITHUB_REPOSITORY" *> $null
@@ -153,8 +153,8 @@ jobs:
             gh release create "$tag" 'dist/ISH.zip' 'dist/ISH.zip.sha256' --title "ISH $tag" --generate-notes --repo "$env:GITHUB_REPOSITORY"
           }
 
-      - name: Update v4.3.0 tag to validated root source
-        if: github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[refresh-v4.3.0]')
+      - name: Update v4.3.1 tag to validated root source
+        if: github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[refresh-v4.3.1]')
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -162,5 +162,5 @@ jobs:
           gh auth setup-git
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag --force --annotate --message "ISH 4.3.0 — onedir Windows 10 package" v4.3.0 $env:GITHUB_SHA
-          git push --force origin refs/tags/v4.3.0
+          git tag --force --annotate --message "ISH 4.3.1 — onedir Windows 10 package" v4.3.1 $env:GITHUB_SHA
+          git push --force origin refs/tags/v4.3.1

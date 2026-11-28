@@ -11,6 +11,9 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import main as main_module
+import chat_interface
+import research_interface
+from conversation_store import Store as ConversationStore
 from main import DEFAULT_CONFIG, ISHApp, Store, extract_openai_content, read_attachment
 
 
@@ -23,6 +26,9 @@ class StoreTests(unittest.TestCase):
     def tearDown(self):
         self.store.close()
         self.temp.cleanup()
+
+    def test_main_keeps_store_compatibility_alias(self):
+        self.assertIs(Store, ConversationStore)
 
     def test_create_message_and_title(self):
         chat_id = self.store.create_conversation()
@@ -67,7 +73,7 @@ class StoreTests(unittest.TestCase):
 
 class ParsingTests(unittest.TestCase):
     def test_cloud_merge_uses_sqlite_safe_conversation_id_helper(self):
-        source = Path(main_module.__file__).read_text(encoding="utf-8")
+        source = Path(__import__("cloud_interface").__file__).read_text(encoding="utf-8")
         self.assertIn("self.store.conversation_ids()", source)
         self.assertNotIn('str(c.get("id")) for c in self.store.list_conversations()', source)
 
@@ -81,9 +87,10 @@ class ParsingTests(unittest.TestCase):
             self.assertEqual(read_attachment(path), "Тестовый текст")
 
     def test_chat_improvement_ideas_are_connected_to_send_and_analysis(self):
-        source = Path(main_module.__file__).read_text(encoding="utf-8")
+        source = Path(chat_interface.__file__).read_text(encoding="utf-8")
+        selfdev_source = Path(__import__("self_improvement_interface").__file__).read_text(encoding="utf-8")
         self.assertIn("save_chat_improvement_idea(", source)
-        self.assertIn("load_chat_improvement_ideas(", source)
+        self.assertIn("load_chat_improvement_ideas(", selfdev_source)
         self.assertIn("идея сохранена для самоанализа", source)
 
     def test_attachment_size_is_limited(self):
@@ -117,8 +124,8 @@ class KeyboardAndPrivacyTests(unittest.TestCase):
         app.config = {"research_results_limit": 3, "research_fetch_pages": 1}
         app.events = queue.Queue()
         app._call_ollama = lambda *_args: (_ for _ in ()).throw(ConnectionError("Ollama недоступна"))
-        original_search = main_module.search_and_fetch
-        main_module.search_and_fetch = lambda *_args, **_kwargs: [{
+        original_search = research_interface.search_and_fetch
+        research_interface.search_and_fetch = lambda *_args, **_kwargs: [{
             "title": "Проверенная статья",
             "url": "https://example.com/article",
             "snippet": "Краткая выдержка из статьи",
@@ -129,7 +136,7 @@ class KeyboardAndPrivacyTests(unittest.TestCase):
                 {"role": "user", "content": "поищи тест"}
             ], "chat-1")
         finally:
-            main_module.search_and_fetch = original_search
+            research_interface.search_and_fetch = original_search
         events = []
         while not app.events.empty():
             events.append(app.events.get_nowait())
@@ -236,7 +243,7 @@ class OllamaSelfImprovementRecoveryTests(unittest.TestCase):
             "ollama_model": "local-model",
             "task_profile": "self_improvement",
         }
-        with patch.object(main_module, "post_json", side_effect=fake_post):
+        with patch.object(chat_interface, "post_json", side_effect=fake_post):
             result = ISHApp._call_ollama(
                 settings, [{"role": "user", "content": "Проверь код"}]
             )
@@ -268,7 +275,7 @@ class OllamaSelfImprovementRecoveryTests(unittest.TestCase):
             "temperature": 0.15,
         }
         messages = [{"role": "user", "content": "Проведи аудит кода"}]
-        with patch.object(main_module, "post_json", side_effect=fake_post):
+        with patch.object(chat_interface, "post_json", side_effect=fake_post):
             result = ISHApp._call_ollama(settings, messages)
 
         self.assertEqual(result, '{"suggestions":[]}')
@@ -293,7 +300,7 @@ class OllamaSelfImprovementRecoveryTests(unittest.TestCase):
             "ollama_model": "local-model",
             "task_profile": "self_improvement",
         }
-        with patch.object(main_module, "post_json", side_effect=failure) as post:
+        with patch.object(chat_interface, "post_json", side_effect=failure) as post:
             with self.assertRaisesRegex(RuntimeError, "зациклилась на повторяющихся токенах"):
                 ISHApp._call_ollama(
                     settings, [{"role": "user", "content": "Проведи аудит"}]
@@ -310,7 +317,7 @@ class OllamaSelfImprovementRecoveryTests(unittest.TestCase):
             "ollama_model": "local-model",
             "task_profile": "chat",
         }
-        with patch.object(main_module, "post_json", side_effect=failure) as post:
+        with patch.object(chat_interface, "post_json", side_effect=failure) as post:
             with self.assertRaisesRegex(RuntimeError, "HTTP 500"):
                 ISHApp._call_ollama(
                     settings, [{"role": "user", "content": "Привет"}]
@@ -327,7 +334,7 @@ class OllamaSelfImprovementRecoveryTests(unittest.TestCase):
             "ollama_model": "local-model",
             "task_profile": "chat",
         }
-        with patch.object(main_module, "post_json", side_effect=failure):
+        with patch.object(chat_interface, "post_json", side_effect=failure):
             with self.assertRaisesRegex(RuntimeError, "HTTP 500"):
                 ISHApp._call_ollama(
                     settings, [{"role": "user", "content": "Привет"}]

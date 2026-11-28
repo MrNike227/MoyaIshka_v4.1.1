@@ -20,23 +20,97 @@ class ReleaseBuildTests(unittest.TestCase):
         self.assertIn('--add-data "improvement_testing.py;source_project"', build)
         self.assertIn('--add-data "module_dependency_analyzer.py;source_project"', build)
         self.assertIn('--add-data "github_pr.py;source_project"', build)
+        self.assertIn('--add-data "temporary_storage.py;source_project"', build)
+        self.assertIn('--add-data "conversation_store.py;source_project"', build)
+        self.assertIn('--add-data "secure_storage.py;source_project"', build)
+        self.assertIn('--add-data "app_configuration.py;source_project"', build)
+        self.assertIn('--add-data "app_helpers.py;source_project"', build)
+        self.assertIn('--add-data "app_startup.py;source_project"', build)
+        self.assertIn('--add-data "app_initialization_interface.py;source_project"', build)
+        self.assertIn('--add-data "app_lifecycle_interface.py;source_project"', build)
+        self.assertIn('--add-data "model_settings_interface.py;source_project"', build)
+        self.assertIn('--add-data "ui_pages_interface.py;source_project"', build)
+        self.assertIn('--add-data "ui_theme_interface.py;source_project"', build)
+        self.assertIn('--add-data "app_runtime.py;source_project"', build)
+        self.assertIn('--add-data "backup_interface.py;source_project"', build)
+        self.assertIn('--add-data "chat_interface.py;source_project"', build)
+        self.assertIn('--add-data "cloud_interface.py;source_project"', build)
+        self.assertIn('--add-data "memory_interface.py;source_project"', build)
+        self.assertIn('--add-data "plugin_interface.py;source_project"', build)
+        self.assertIn('--add-data "research_interface.py;source_project"', build)
+        self.assertIn('--add-data "self_improvement_interface.py;source_project"', build)
+        self.assertIn('--add-data "settings_interface.py;source_project"', build)
+        self.assertIn('--add-data "ui_components.py;source_project"', build)
+        self.assertIn('--add-data "update_interface.py;source_project"', build)
+        self.assertIn('--add-data "voice_interface.py;source_project"', build)
         self.assertIn('--add-data "PLAN_4.2.6_RU.md;source_project"', build)
         self.assertIn('--add-data "PLAN_4.2.7_RU.md;source_project"', build)
         self.assertIn('--add-data "PLAN_4.2.8_RU.md;source_project"', build)
-        self.assertIn('--add-data "PLAN_4.3.0_RU.md;source_project"', build)
+        self.assertIn('--add-data "PLAN_4.3.1_RU.md;source_project"', build)
         self.assertIn("dist\\ISH.zip", build)
         self.assertIn("api-ms-win-crt-", build)
         self.assertIn("ucrtbase.dll", build)
 
     def test_module_dependency_analyzer_is_in_packaged_source_workspace(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
-        self.assertIn("from module_dependency_analyzer import analyze_module_dependencies", source)
-        self.assertIn('"module_dependency_analyzer.py"', source)
-        self.assertIn('"tests/test_module_dependency_analyzer.py"', source)
-        self.assertIn('"PLAN_4.2.7_RU.md"', source)
-        self.assertIn('"PLAN_4.2.8_RU.md"', source)
-        self.assertIn('"PLAN_4.3.0_RU.md"', source)
-        self.assertIn('"tests/test_multi_file_diff_recovery.py"', source)
+        workspace_source = (ROOT / "app_helpers.py").read_text(encoding="utf-8")
+        self.assertIn("from module_dependency_analyzer import (", source)
+        self.assertIn("from conversation_store import Store, load_json, now_iso, pretty_time", source)
+        self.assertIn("from secure_storage import DATA_BLOB, dpapi_transform, protect_api_key, unprotect_api_key, unprotect_github_pr_token", source)
+        self.assertNotIn("class DATA_BLOB(", source)
+        self.assertNotIn("def dpapi_transform(", source)
+        self.assertIn("secure_storage.py", workspace_source)
+        self.assertIn("tests/test_secure_storage.py", workspace_source)
+        self.assertIn('"app_configuration.py"', workspace_source)
+        self.assertIn('"app_helpers.py"', workspace_source)
+        self.assertIn('"app_startup.py"', workspace_source)
+        self.assertIn('"app_initialization_interface.py"', workspace_source)
+        self.assertIn('"app_lifecycle_interface.py"', workspace_source)
+        self.assertIn('"model_settings_interface.py"', workspace_source)
+        self.assertIn('"ui_pages_interface.py"', workspace_source)
+        self.assertIn('"ui_theme_interface.py"', workspace_source)
+        self.assertIn('"app_runtime.py"', workspace_source)
+        self.assertIn('"backup_interface.py"', workspace_source)
+        self.assertIn('"chat_interface.py"', workspace_source)
+        self.assertIn('"cloud_interface.py"', workspace_source)
+        self.assertIn('"memory_interface.py"', workspace_source)
+        self.assertIn('"plugin_interface.py"', workspace_source)
+        self.assertIn('"research_interface.py"', workspace_source)
+        self.assertIn('"self_improvement_interface.py"', workspace_source)
+        self.assertIn('"settings_interface.py"', workspace_source)
+        self.assertIn('"ui_components.py"', workspace_source)
+        self.assertIn('"update_interface.py"', workspace_source)
+        self.assertIn('"voice_interface.py"', workspace_source)
+        self.assertIn("class ISHApp(", source)
+        self.assertNotIn("class Store:", source)
+        dependency_imports = source.split("from module_dependency_analyzer import (", 1)[1].split(")", 1)[0]
+        self.assertIn("analyze_module_dependencies", dependency_imports)
+        self.assertIn('"module_dependency_analyzer.py"', workspace_source)
+        self.assertIn('"tests/test_module_dependency_analyzer.py"', workspace_source)
+        self.assertIn('"PLAN_4.2.7_RU.md"', workspace_source)
+        self.assertIn('"PLAN_4.2.8_RU.md"', workspace_source)
+        self.assertIn('"PLAN_4.3.1_RU.md"', workspace_source)
+        self.assertIn('"tests/test_multi_file_diff_recovery.py"', workspace_source)
+        self.assertIn('"temporary_storage.py"', workspace_source)
+        self.assertIn('"conversation_store.py"', workspace_source)
+        self.assertIn('"tests/test_temporary_storage.py"', workspace_source)
+        self.assertIn('"Workspaces"', workspace_source)
+
+    def test_runtime_temporary_workspaces_use_container_storage(self):
+        checks = {
+            "update_interface.py": ('get_temp_directory("update_staging"',),
+            "backup_interface.py": ('get_temp_directory("cloud_restore"',),
+            "updater_helper.py": ('get_temp_directory("installers")',),
+            "improvement_testing.py": ('get_temp_directory("self_development")',),
+            "windows_sandbox.py": ('get_temp_directory("sandbox_setup")',),
+            "voice_assistant.py": ('get_temp_directory("voice")',),
+            "backup_manager.py": ('get_temp_directory("backups")', 'get_temp_directory("backup_restore")'),
+        }
+        for filename, required in checks.items():
+            source = (ROOT / filename).read_text(encoding="utf-8")
+            for marker in required:
+                with self.subTest(filename=filename, marker=marker):
+                    self.assertIn(marker, source)
 
     def test_pyinstaller_bootloader_version_is_pinned(self):
         requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8")
@@ -50,10 +124,11 @@ class ReleaseBuildTests(unittest.TestCase):
 
     def test_application_identity_is_ish(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
-        self.assertIn('APP_NAME = "ISH"', source)
-        self.assertIn("class ISHApp:", source)
+        config = (ROOT / "app_configuration.py").read_text(encoding="utf-8")
+        self.assertIn('APP_NAME = "ISH"', config)
+        self.assertIn("class ISHApp(", source)
         self.assertNotIn("class MoyaIshkaApp:", source)
-        self.assertIn('"assistant_name": "ISH"', source)
+        self.assertIn('"assistant_name": "ISH"', config)
 
     def test_legacy_user_data_is_copied_to_ish_without_deleting_source(self):
         import os
@@ -70,9 +145,9 @@ class ReleaseBuildTests(unittest.TestCase):
             self.assertEqual((target / "config.json").read_text(encoding="utf-8"), '{"assistant_name":"old"}')
             self.assertTrue((legacy / "config.json").is_file())
 
-    def test_application_version_is_429(self):
-        source = (ROOT / "main.py").read_text(encoding="utf-8")
-        self.assertIn('APP_VERSION = "4.3.0"', source)
+    def test_application_version_is_431(self):
+        source = (ROOT / "app_configuration.py").read_text(encoding="utf-8")
+        self.assertIn('APP_VERSION = "4.3.1"', source)
 
     def test_legacy_update_repository_is_migrated(self):
         from main import migrate_update_repository
@@ -242,15 +317,16 @@ class ReleaseBuildTests(unittest.TestCase):
         self.assertIn("--hidden-import=_cffi_backend", build)
 
     def test_frozen_smoke_test_requires_app_local_runtime_dlls(self):
-        source = (ROOT / "main.py").read_text(encoding="utf-8")
+        source = (ROOT / "app_startup.py").read_text(encoding="utf-8")
         self.assertIn('getattr(sys, "frozen", False)', source)
         self.assertIn('"vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll"', source)
         self.assertNotIn("ucrtbase.dll", source)
         self.assertIn('"_MEIPASS"', source)
 
     def test_runtime_smoke_test_performs_aes_gcm_roundtrip(self):
-        source = (ROOT / "main.py").read_text(encoding="utf-8")
-        self.assertIn('"--self-test-imports"', source)
+        source = (ROOT / "app_startup.py").read_text(encoding="utf-8")
+        entrypoint = (ROOT / "main.py").read_text(encoding="utf-8")
+        self.assertIn('"--self-test-imports"', entrypoint)
         self.assertIn("_CryptoAESGCM", source)
         self.assertIn("_CryptoScrypt", source)
         self.assertIn("cipher.decrypt", source)
@@ -274,7 +350,7 @@ class ReleaseBuildTests(unittest.TestCase):
         self.assertNotIn("build_patched_pyinstaller.py", workflow)
 
     def test_windows_and_voice_page_has_mousewheel_scroll_container(self):
-        source = (ROOT / "main.py").read_text(encoding="utf-8")
+        source = (ROOT / "ui_pages_interface.py").read_text(encoding="utf-8")
         page_start = source.index("    def _build_windows_page(self) -> None:")
         page_end = source.index("    def _build_workshop_page(self) -> None:", page_start)
         windows_page = source[page_start:page_end]
@@ -284,8 +360,9 @@ class ReleaseBuildTests(unittest.TestCase):
         self.assertIn("scroll_canvas.create_window", windows_page)
         self.assertIn('"<Configure>"', windows_page)
         self.assertIn("self.windows_page_canvas = scroll_canvas", windows_page)
-        self.assertIn("if isinstance(ancestor, tk.Canvas):", source)
-        self.assertIn("ancestor.yview_scroll(steps, \"units\")", source)
+        chat_source = (ROOT / "chat_interface.py").read_text(encoding="utf-8")
+        self.assertIn("if isinstance(ancestor, tk.Canvas):", chat_source)
+        self.assertIn("ancestor.yview_scroll(steps, \"units\")", chat_source)
 
     def test_native_dependency_audit_is_required_before_release(self):
         audit = (ROOT / "verify_pe_dependencies.py").read_text(encoding="utf-8")
@@ -301,10 +378,11 @@ class ReleaseBuildTests(unittest.TestCase):
 
     def test_context_engine_is_bundled_and_used(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
+        workspace_source = (ROOT / "app_helpers.py").read_text(encoding="utf-8")
         self.assertIn("select_memory_records", source)
         self.assertIn("MEMORY_CONTEXT_START", source)
         self.assertIn("trim_conversation_context", source)
-        self.assertIn("context_engine.py", source)
+        self.assertIn("context_engine.py", workspace_source)
         self.assertTrue((ROOT / "tests" / "test_context_engine.py").is_file())
 
     def test_workflow_parses_folder_updater_with_windows_powershell(self):
@@ -323,7 +401,7 @@ class ReleaseBuildTests(unittest.TestCase):
         )
 
     def test_migration_persists_app_target_only_after_user_confirmation(self):
-        source = (ROOT / "main.py").read_text(encoding="utf-8")
+        source = (ROOT / "update_interface.py").read_text(encoding="utf-8")
         start = source.index("    def install_current_build_to_selected_folder(self) -> None:")
         end = source.index("    def search_old_versions(self) -> None:", start)
         method = source[start:end]
@@ -341,7 +419,7 @@ class ReleaseBuildTests(unittest.TestCase):
         self.assertIn("target_dir=destination", method)
 
     def test_update_download_dialog_selects_container_root_and_targets_app(self):
-        source = (ROOT / "main.py").read_text(encoding="utf-8")
+        source = (ROOT / "chat_interface.py").read_text(encoding="utf-8")
         start = source.index('                elif event == "update_downloaded":')
         end = source.index('                elif event == "old_versions_scan_complete":', start)
         handler = source[start:end]
@@ -359,7 +437,7 @@ class ReleaseBuildTests(unittest.TestCase):
             self.assertEqual(layout["app"].name, "App")
             self.assertEqual(layout["updates"].name, "Updates")
             self.assertEqual(layout["app"].parent, layout["updates"].parent)
-            source = (ROOT / "main.py").read_text(encoding="utf-8")
+            source = (ROOT / "update_interface.py").read_text(encoding="utf-8")
             start = source.index("    def _selected_install_dir(self) -> Path:")
             end = source.index("    def open_install_folder", start)
             selector = source[start:end]
@@ -367,11 +445,12 @@ class ReleaseBuildTests(unittest.TestCase):
             self.assertIn('return resolve_install_layout(root)["app"]', selector)
 
     def test_container_layout_is_created_on_application_start_and_before_update(self):
-        source = (ROOT / "main.py").read_text(encoding="utf-8")
+        source = (ROOT / "app_initialization_interface.py").read_text(encoding="utf-8")
         self.assertIn("install_layout = ensure_install_layout(self.config[\"install_root_dir\"])", source)
-        start = source.index("    def _start_staged_update_install(")
-        end = source.index("    def _install_staged_update_from_source", start)
-        installer = source[start:end]
+        update_source = (ROOT / "update_interface.py").read_text(encoding="utf-8")
+        start = update_source.index("    def _start_staged_update_install(")
+        end = update_source.index("    def _install_staged_update_from_source", start)
+        installer = update_source[start:end]
         self.assertIn("layout = ensure_install_layout(container_root)", installer)
         self.assertIn('self.config["updates_dir"] = str(layout["updates"])', installer)
         self.assertIn('self.config["install_dir"] = str(destination)', installer)
@@ -385,17 +464,16 @@ class ReleaseBuildTests(unittest.TestCase):
         self.assertIn(r'Name: "{app}\..\Uninstall"', installer)
 
     def test_staged_update_modes_share_one_install_implementation(self):
-        source = (ROOT / "main.py").read_text(encoding="utf-8")
+        source = (ROOT / "update_interface.py").read_text(encoding="utf-8")
         start = source.index("    def _start_staged_update_install(")
-        end = source.index("    # ---------- memory ----------", start)
-        installer = source[start:end]
+        installer = source[start:]
         self.assertEqual(installer.count("launch_windows_directory_replacement("), 1)
         self.assertIn("staged_verified=True", installer)
         self.assertIn("self._start_staged_update_install(install_dir, source_process=True)", installer)
         self.assertIn("self._start_staged_update_install(install_dir, source_process=False)", installer)
 
     def test_move_current_build_copies_complete_onedir_folder(self):
-        source = (ROOT / "main.py").read_text(encoding="utf-8")
+        source = (ROOT / "update_interface.py").read_text(encoding="utf-8")
         start = source.index("    def install_current_build_to_selected_folder(self) -> None:")
         end = source.index("    def search_old_versions(self) -> None:", start)
         method = source[start:end]
@@ -461,7 +539,7 @@ class ReleaseBuildTests(unittest.TestCase):
                 })
             manifest = {
                 "schema": 1,
-                "version": "4.3.0",
+                "version": "4.3.1",
                 "entrypoint": "ISH.exe",
                 "exe_sha256": hashlib.sha256(payloads["ISH.exe"]).hexdigest(),
                 "files": entries,
@@ -471,11 +549,11 @@ class ReleaseBuildTests(unittest.TestCase):
             (app / "desktop.ini").write_text("[.ShellClassInfo]", encoding="utf-8")
             (internal / "Thumbs.db").write_bytes(b"cache")
             (internal / "ehthumbs.db").write_bytes(b"cache")
-            self.assertEqual(validate_app_directory(app, "4.3.0")["version"], "4.3.0")
+            self.assertEqual(validate_app_directory(app, "4.3.1")["version"], "4.3.1")
 
             (internal / "unexpected.dll").write_bytes(b"unexpected")
             with self.assertRaisesRegex(RuntimeError, "лишние"):
-                validate_app_directory(app, "4.3.0")
+                validate_app_directory(app, "4.3.1")
 
     def test_directory_updater_has_verified_folder_swap_and_rollback(self):
         helper = (ROOT / "updater_helper.py").read_text(encoding="utf-8")
@@ -514,10 +592,10 @@ class ReleaseBuildTests(unittest.TestCase):
 
     def test_windows_version_resource_matches_release_version(self):
         source = (ROOT / "version_info.txt").read_text(encoding="utf-8")
-        self.assertIn("filevers=(4, 3, 0, 0)", source)
-        self.assertIn("prodvers=(4, 3, 0, 0)", source)
-        self.assertIn("FileVersion', '4.3.0'", source)
-        self.assertIn("ProductVersion', '4.3.0'", source)
+        self.assertIn("filevers=(4, 3, 1, 0)", source)
+        self.assertIn("prodvers=(4, 3, 1, 0)", source)
+        self.assertIn("FileVersion', '4.3.1'", source)
+        self.assertIn("ProductVersion', '4.3.1'", source)
 
 
 
@@ -529,7 +607,7 @@ class ReleaseBuildTests(unittest.TestCase):
 
     def test_workflow_uses_distinct_verified_name_and_node24_actions(self):
         workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
-        self.assertIn("Build Windows release — verified 4.3.0 onedir", workflow)
+        self.assertIn("Build Windows release — verified 4.3.1 onedir", workflow)
         self.assertIn("Audit python311.dll PE dependency tree on Windows", workflow)
         self.assertIn("runs-on: windows-2022", workflow)
         self.assertNotIn("build_patched_pyinstaller.py", workflow)
@@ -551,7 +629,7 @@ class ReleaseBuildTests(unittest.TestCase):
         self.assertIn("ISH.zip.sha256", workflow)
 
     def test_self_improvement_retries_when_model_does_not_return_diff(self):
-        source = (ROOT / "main.py").read_text(encoding="utf-8")
+        source = (ROOT / "self_improvement_interface.py").read_text(encoding="utf-8")
         helper = (ROOT / "self_improvement.py").read_text(encoding="utf-8")
         self.assertIn("generate_validated_multi_file_unified_diff", source)
         self.assertIn("generate_validated_multi_file_unified_diff(", source)
@@ -574,20 +652,20 @@ class ReleaseBuildTests(unittest.TestCase):
         workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
         release_step = workflow[workflow.index("- name: Create release or replace assets"): ]
         self.assertIn("startsWith(github.ref, 'refs/tags/')", release_step)
-        self.assertIn("contains(github.event.head_commit.message, '[refresh-v4.3.0]')", release_step)
+        self.assertIn("contains(github.event.head_commit.message, '[refresh-v4.3.1]')", release_step)
         self.assertIn("elseif ($env:GITHUB_REF -eq 'refs/heads/main')", release_step)
         self.assertIn("Refusing to create a new release from main", release_step)
 
-    def test_hotfix_marker_refreshes_existing_v429_release_and_tag_only(self):
+    def test_hotfix_marker_refreshes_existing_v431_release_and_tag_only(self):
         workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
-        self.assertIn("RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'v4.3.0' }}", workflow)
-        self.assertIn("- name: Update v4.3.0 tag to validated root source", workflow)
-        self.assertIn("git push --force origin refs/tags/v4.3.0", workflow)
-        self.assertIn('ISH 4.3.0 — onedir Windows 10 package" v4.3.0 $env:GITHUB_SHA', workflow)
+        self.assertIn("RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'v4.3.1' }}", workflow)
+        self.assertIn("- name: Update v4.3.1 tag to validated root source", workflow)
+        self.assertIn("git push --force origin refs/tags/v4.3.1", workflow)
+        self.assertIn('ISH 4.3.1 — onedir Windows 10 package" v4.3.1 $env:GITHUB_SHA', workflow)
         self.assertIn("git tag --force --annotate --message", workflow)
         self.assertIn('git config user.name "github-actions[bot]"', workflow)
         self.assertIn('git config user.email "41898282+github-actions[bot]@users.noreply.github.com"', workflow)
-        self.assertLess(workflow.index("Create release or replace assets"), workflow.index("Update v4.3.0 tag to validated root source"))
+        self.assertLess(workflow.index("Create release or replace assets"), workflow.index("Update v4.3.1 tag to validated root source"))
     def test_windows10_script_checks_exact_target_os_without_python(self):
         script = (ROOT / "TEST_WINDOWS10.ps1").read_text(encoding="utf-8")
         self.assertIn("19045", script)
@@ -598,17 +676,19 @@ class ReleaseBuildTests(unittest.TestCase):
     def test_windows_sandbox_is_bundled_and_required_for_proposal_tests(self):
         build = (ROOT / "BUILD_EXE.bat").read_text(encoding="utf-8-sig")
         source = (ROOT / "main.py").read_text(encoding="utf-8")
+        workspace_source = (ROOT / "app_helpers.py").read_text(encoding="utf-8")
+        selfdev = (ROOT / "self_improvement_interface.py").read_text(encoding="utf-8")
         testing = (ROOT / "improvement_testing.py").read_text(encoding="utf-8")
         sandbox = (ROOT / "windows_sandbox.py").read_text(encoding="utf-8")
         self.assertIn('--add-data "windows_sandbox.py;source_project"', build)
         self.assertIn('--add-data "supabase_backup.py;source_project"', build)
-        self.assertIn('"supabase_backup.py"', source)
-        self.assertIn('"tests/test_intelligent_memory.py"', source)
-        self.assertIn('"tests/test_supabase_backup.py"', source)
-        self.assertIn('"windows_sandbox.py"', source)
+        self.assertIn('"supabase_backup.py"', workspace_source)
+        self.assertIn('"tests/test_intelligent_memory.py"', workspace_source)
+        self.assertIn('"tests/test_supabase_backup.py"', workspace_source)
+        self.assertIn('"windows_sandbox.py"', workspace_source)
         self.assertIn("request_windows_sandbox_install", source)
-        self.assertIn("record_windows_sandbox_install", source)
-        self.assertIn("record_windows_sandbox_install(result)", source)
+        self.assertIn("record_windows_sandbox_install", selfdev)
+        self.assertIn("record_windows_sandbox_install(result)", selfdev)
         self.assertIn("get_windows_sandbox_status", source)
         self.assertIn("<ProtectedClient>Enable</ProtectedClient>", sandbox)
         self.assertIn("<Networking>Disable</Networking>", sandbox)
@@ -625,7 +705,8 @@ class ReleaseBuildTests(unittest.TestCase):
 
 
     def test_self_improvement_generates_and_tests_matching_multi_file_changes(self):
-        main = (ROOT / "main.py").read_text(encoding="utf-8")
+        main = (ROOT / "self_improvement_interface.py").read_text(encoding="utf-8")
+        workspace = (ROOT / "app_helpers.py").read_text(encoding="utf-8")
         source = (ROOT / "self_improvement.py").read_text(encoding="utf-8")
         delivery = (ROOT / "improvement_delivery.py").read_text(encoding="utf-8")
         testing = (ROOT / "improvement_testing.py").read_text(encoding="utf-8")
@@ -641,12 +722,19 @@ class ReleaseBuildTests(unittest.TestCase):
         self.assertIn('if base_hash == "absent":', testing)
         self.assertIn("apply_multi_file_unified_diff", testing)
         self.assertIn("save_multi_change_bundle", background)
-        self.assertIn("tests/test_background_developer.py", main)
+        self.assertIn('"tests/test_background_developer.py"', workspace)
 
     def test_multi_file_patch_is_never_applied_directly_or_sent_as_single_file_pr(self):
-        main = (ROOT / "main.py").read_text(encoding="utf-8")
-        apply_method = main[main.index("    def apply_improvement("):main.index("    # Updates are obtained", main.index("    def apply_improvement("))]
-        pr_method = main[main.index("    def create_improvement_pr("):main.index("    def open_updates_folder(", main.index("    def create_improvement_pr("))]
+        update_source = (ROOT / "update_interface.py").read_text(encoding="utf-8")
+        selfdev_source = (ROOT / "self_improvement_interface.py").read_text(encoding="utf-8")
+        apply_start = update_source.index("    def apply_improvement(")
+        apply_end = update_source.index("\n    def ", apply_start + 1)
+        apply_method = update_source[apply_start:apply_end]
+        pr_start = selfdev_source.index("    def create_improvement_pr(")
+        pr_end = selfdev_source.find("\n    def ", pr_start + 1)
+        if pr_end < 0:
+            pr_end = len(selfdev_source)
+        pr_method = selfdev_source[pr_start:pr_end]
         self.assertIn("split_multi_file_unified_diff", apply_method)
         self.assertIn("нельзя применить пакет к исходникам напрямую", apply_method.lower())
         self.assertIn("split_multi_file_unified_diff", pr_method)
@@ -656,12 +744,9 @@ class ReleaseBuildTests(unittest.TestCase):
         self.assertIn("if multi_file and bundle_dir is not None:", pr_method)
         self.assertIn("create_draft_pull_request(", pr_method)
 
-
-
-
-    def test_inno_setup_installer_version_is_429(self):
+    def test_inno_setup_installer_version_is_431(self):
         installer = (ROOT / "INSTALLER.iss").read_text(encoding="utf-8")
-        self.assertIn("AppVersion=4.3.0", installer)
+        self.assertIn("AppVersion=4.3.1", installer)
 
 
 if __name__ == "__main__":

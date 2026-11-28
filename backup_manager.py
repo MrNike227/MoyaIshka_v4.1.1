@@ -6,6 +6,7 @@ user plugins. Windows DPAPI cloud-session files are intentionally excluded.
 """
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import os
@@ -17,6 +18,8 @@ import zipfile
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 from typing import Any
+
+from temporary_storage import get_temp_directory
 
 BACKUP_FORMAT_VERSION = 1
 BACKUP_PREFIX = "ISH_backup_"
@@ -63,6 +66,29 @@ def _remove_path(path: Path) -> None:
         path.unlink(missing_ok=True)
     elif path.exists():
         shutil.rmtree(path)
+
+
+def _move_restore_path(source: Path, destination: Path) -> None:
+    """Move restore data from Container\\Temp, including cross-volume installs."""
+    try:
+        os.replace(source, destination)
+        return
+    except OSError as exc:
+        if getattr(exc, "winerror", None) != 17 and exc.errno != errno.EXDEV:
+            raise
+    if destination.exists() or destination.is_symlink():
+        raise FileExistsError(f"Цель восстановления уже существует: {destination}")
+    try:
+        if source.is_symlink():
+            raise OSError("Перемещение символической ссылки между дисками запрещено.")
+        if source.is_dir():
+            shutil.copytree(source, destination, symlinks=True, copy_function=shutil.copy2)
+        else:
+            shutil.copy2(source, destination)
+        _remove_path(source)
+    except Exception:
+        _remove_path(destination)
+        raise
 
 
 def _copy_user_directory(source: Path, destination: Path) -> None:
@@ -285,8 +311,10 @@ def create_backup(
         f"{uuid.uuid4().hex[:8]}.zip"
     )
     destination = folder / filename
-    work = Path(tempfile.mkdtemp(prefix=".backup-work-", dir=str(folder)))
-    temp_archive = folder / f".{filename}.{uuid.uuid4().hex}.tmp.zip"
+    scratch_root = get_temp_directory("backups")
+    work = Path(tempfile.mkdtemp(prefix=".backup-work-", dir=str(scratch_root)))
+    temp_archive = scratch_root / f".{filename}.{uuid.uuid4().hex}.tmp.zip"
+    published_partial = folder / f".{filename}.{uuid.uuid4().hex}.partial.zip"
     try:
         for name in ROOT_FILES:
             source = root / name
@@ -330,7 +358,21 @@ def create_backup(
                 json.dumps(manifest, ensure_ascii=False, sort_keys=True, indent=2).encode("utf-8"),
             )
         inspect_backup(temp_archive)
-        os.replace(temp_archive, destination)
+        try:
+            os.replace(temp_archive, destination)
+        except OSError as exc:
+            if getattr(exc, "winerror", None) != 17 and exc.errno != errno.EXDEV:
+                raise
+            # The archive is assembled on Container\\Temp. For a backup folder
+            # on another volume, copy to a destination-volume partial file and
+            # atomically publish it only after the copy has been flushed.
+            with temp_archive.open("rb") as source, published_partial.open("xb") as target:
+                shutil.copyfileobj(source, target, length=CHUNK_SIZE)
+                target.flush()
+                os.fsync(target.fileno())
+            inspect_backup(published_partial)
+            os.replace(published_partial, destination)
+            temp_archive.unlink(missing_ok=True)
         _prune_backups(folder, retention_count)
         return destination
     except BackupError:
@@ -340,6 +382,7 @@ def create_backup(
     finally:
         _remove_path(work)
         temp_archive.unlink(missing_ok=True)
+        published_partial.unlink(missing_ok=True)
 
 
 def maybe_create_daily_backup(
@@ -379,7 +422,7 @@ def restore_backup(
         raise BackupError("Папка данных Моей ИИшки не найдена.")
     archive_path = Path(archive_path).expanduser().resolve()
     backup_directory(root, backup_dir).mkdir(parents=True, exist_ok=True)
-    stage_root = Path(tempfile.mkdtemp(prefix=".restore-work-", dir=str(root)))
+    stage_root = Path(tempfile.mkdtemp(prefix=".restore-work-", dir=str(get_temp_directory("backup_restore"))))
     stage = stage_root / "stage"
     rollback = stage_root / "rollback"
     stage.mkdir()
@@ -443,14 +486,14 @@ def restore_backup(
                 if current.exists() or current.is_symlink():
                     saved = rollback / name
                     saved.parent.mkdir(parents=True, exist_ok=True)
-                    os.replace(current, saved)
+                    _move_restore_path(current, saved)
                     moved_originals.append(name)
             for name in RESTORE_TARGETS:
                 staged = stage / name
                 if staged.exists():
                     target = root / name
                     target.parent.mkdir(parents=True, exist_ok=True)
-                    os.replace(staged, target)
+                    _move_restore_path(staged, target)
                     installed_targets.append(name)
         except Exception as exc:
             for name in reversed(installed_targets):
@@ -458,7 +501,7 @@ def restore_backup(
             for name in reversed(moved_originals):
                 saved = rollback / name
                 if saved.exists() or saved.is_symlink():
-                    os.replace(saved, root / name)
+                    _move_restore_path(saved, root / name)
             raise BackupError(
                 "Не удалось полностью применить резервную копию. "
                 "Выполнен откат к данным, которые были до восстановления. "

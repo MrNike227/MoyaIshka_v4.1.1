@@ -478,3 +478,525 @@ def format_project_architecture_index(index: dict[str, Any], *, max_chars: int =
         lines.append("\nОграничения: " + " | ".join(str(item) for item in warnings[:8]))
     lines.append("\nВажно: AST показывает статические определения и вызовы, но не гарантирует обнаружение динамических импортов, reflection и runtime-связей.")
     return "\n".join(lines)
+
+
+def _source_segment(source: str, node: ast.AST, limit: int = 240) -> str:
+    try:
+        value = ast.get_source_segment(source, node) or ""
+    except (TypeError, ValueError):
+        value = ""
+    return value.splitlines()[0].strip()[:limit]
+
+
+def build_function_call_graph(
+    project_root: str | Path,
+    target_relative_path: str | None = None,
+    *,
+    max_nodes: int = 4000,
+    max_edges: int = 12000,
+) -> dict[str, Any]:
+    """Build a bounded static function/method call graph without importing project code.
+
+    Resolved edges are evidence from AST call sites. Dynamic dispatch, reflection,
+    callbacks and external APIs cannot be resolved completely and are reported separately.
+    """
+    root = Path(project_root).expanduser().resolve()
+    warnings: list[str] = []
+    files = _safe_python_files(root, warnings)
+    target = str(target_relative_path or "").replace("\\", "/").strip()
+    if target:
+        pure = PurePosixPath(target)
+        if pure.is_absolute() or any(part in {"", ".", ".."} for part in pure.parts):
+            raise ValueError("Для карты вызовов нужен относительный путь к Python-файлу.")
+        target = pure.as_posix()
+
+    path_to_module: dict[str, str] = {}
+    module_to_path: dict[str, str] = {}
+    for relative, _ in files:
+        module = _module_name(relative)
+        if module:
+            path_to_module[relative] = module
+            module_to_path.setdefault(module, relative)
+
+    parsed: dict[str, tuple[str, ast.Module]] = {}
+    symbols: dict[str, dict[str, Any]] = {}
+    symbols_by_path: dict[str, dict[str, list[str]]] = defaultdict(lambda: defaultdict(list))
+    symbols_by_name: dict[str, list[str]] = defaultdict(list)
+
+    def add_symbol(relative: str, source: str, node: ast.AST, qualname: str, kind: str) -> None:
+        if len(symbols) >= max(1, min(int(max_nodes), 10000)):
+            return
+        name = str(getattr(node, "name", "") or "")
+        if not name:
+            return
+        identifier = f"{relative}::{qualname}"
+        symbols[identifier] = {
+            "id": identifier,
+            "path": relative,
+            "name": name,
+            "qualname": qualname,
+            "kind": kind,
+            "line": int(getattr(node, "lineno", 0) or 0),
+            "end_line": int(getattr(node, "end_lineno", 0) or 0),
+            "signature": _source_segment(source, node),
+        }
+        symbols_by_path[relative][name].append(identifier)
+        symbols_by_name[name].append(identifier)
+
+    for relative, full_path in files:
+        try:
+            source = full_path.read_text(encoding="utf-8")
+            tree = ast.parse(source, filename=relative)
+        except (OSError, UnicodeError, SyntaxError) as exc:
+            warnings.append(f"{relative}: карта вызовов пропустила файл ({type(exc).__name__}).")
+            continue
+        parsed[relative] = (source, tree)
+        for node in tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                add_symbol(relative, source, node, node.name, "function" if isinstance(node, ast.FunctionDef) else "async_function")
+            elif isinstance(node, ast.ClassDef):
+                add_symbol(relative, source, node, node.name, "class")
+                for child in node.body:
+                    if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        add_symbol(
+                            relative, source, child, f"{node.name}.{child.name}",
+                            "method" if isinstance(child, ast.FunctionDef) else "async_method",
+                        )
+
+    if target and target not in parsed:
+        raise ValueError(f"Файл {target} не удалось включить в карту вызовов.")
+
+    # Resolve imported names only when the import maps to a project module/symbol.
+    aliases_by_path: dict[str, dict[str, tuple[str, str]]] = defaultdict(dict)
+    for relative, (_source, tree) in parsed.items():
+        current_module = path_to_module.get(relative, "")
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    imported_path = module_to_path.get(alias.name)
+                    if imported_path:
+                        aliases_by_path[relative][alias.asname or alias.name.split(".")[0]] = ("module", imported_path)
+            elif isinstance(node, ast.ImportFrom):
+                candidates = _resolve_import_candidates(
+                    current_module, relative, node.module, node.level,
+                    [alias.name for alias in node.names], module_to_path,
+                )
+                for alias in node.names:
+                    for imported_path in candidates:
+                        imported_symbol = f"{imported_path}::{alias.name}"
+                        if imported_symbol in symbols:
+                            aliases_by_path[relative][alias.asname or alias.name] = ("symbol", imported_symbol)
+                            break
+                        if alias.name == "*":
+                            continue
+                        # A from-import may import a submodule rather than a symbol.
+                        submodule_path = module_to_path.get(f"{_module_name(imported_path) and _module_name(imported_path) + '.' or ''}{alias.name}")
+                        if submodule_path:
+                            aliases_by_path[relative][alias.asname or alias.name] = ("module", submodule_path)
+
+    def call_targets(relative: str, current_class: str, call: ast.Call) -> list[str]:
+        func = call.func
+        local = symbols_by_path.get(relative, {})
+        aliases = aliases_by_path.get(relative, {})
+        if isinstance(func, ast.Name):
+            local_matches = local.get(func.id, [])
+            if len(local_matches) == 1 and symbols[local_matches[0]]["kind"] not in {"class"}:
+                return local_matches
+            alias = aliases.get(func.id)
+            if alias:
+                kind, value = alias
+                if kind == "symbol" and value in symbols:
+                    return [value]
+            global_matches = symbols_by_name.get(func.id, [])
+            if len(global_matches) == 1:
+                return global_matches
+            return []
+
+        if isinstance(func, ast.Attribute):
+            attr = func.attr
+            base = func.value
+            if isinstance(base, ast.Name) and base.id in {"self", "cls"} and current_class:
+                candidate = f"{relative}::{current_class}.{attr}"
+                return [candidate] if candidate in symbols else []
+            if isinstance(base, ast.Name) and base.id in aliases:
+                kind, value = aliases[base.id]
+                candidate = f"{value}::{attr}" if kind == "module" else f"{value}.{attr}"
+                if candidate in symbols:
+                    return [candidate]
+                # Imported class methods are represented as File.py::Class.method.
+                if kind == "symbol":
+                    candidate = f"{value}.{attr}"
+                    if candidate in symbols:
+                        return [candidate]
+            # Resolve a class-local explicit call such as Worker.run(...).
+            if isinstance(base, ast.Name):
+                candidate = f"{relative}::{base.id}.{attr}"
+                if candidate in symbols:
+                    return [candidate]
+            same_file = local.get(attr, [])
+            if len(same_file) == 1:
+                return same_file
+        return []
+
+    edges: list[dict[str, Any]] = []
+    unresolved: list[dict[str, Any]] = []
+    adjacency: dict[str, set[str]] = defaultdict(set)
+    reverse: dict[str, set[str]] = defaultdict(set)
+
+    def calls_in_scope(function: ast.AST):
+        pending = list(reversed(list(getattr(function, "body", []))))
+        while pending:
+            current = pending.pop()
+            if isinstance(current, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+                continue
+            if isinstance(current, ast.Call):
+                yield current
+            pending.extend(reversed(list(ast.iter_child_nodes(current))))
+
+    for identifier, meta in symbols.items():
+        if meta["kind"] == "class":
+            continue
+        relative = str(meta["path"])
+        source, tree = parsed[relative]
+        # Find the exact function/method node by its recorded source line.
+        owner_class = str(meta["qualname"]).rsplit(".", 1)[0] if "." in str(meta["qualname"]) else ""
+        function_node = None
+        for node in tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and not owner_class and node.lineno == meta["line"]:
+                function_node = node
+                break
+            if isinstance(node, ast.ClassDef) and owner_class == node.name:
+                function_node = next((
+                    child for child in node.body
+                    if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)) and child.lineno == meta["line"]
+                ), None)
+                break
+        if function_node is None:
+            continue
+        for call in calls_in_scope(function_node):
+            targets = call_targets(relative, owner_class, call)
+            if targets:
+                for destination in targets:
+                    if len(edges) >= max(1, min(int(max_edges), 30000)):
+                        warnings.append(f"Достигнут предел карты вызовов: {max_edges} рёбер.")
+                        break
+                    edge = {"from": identifier, "to": destination, "line": int(getattr(call, "lineno", 0) or 0)}
+                    edges.append(edge)
+                    adjacency[identifier].add(destination)
+                    reverse[destination].add(identifier)
+            else:
+                func = call.func
+                call_name = func.id if isinstance(func, ast.Name) else (
+                    func.attr if isinstance(func, ast.Attribute) else type(func).__name__
+                )
+                dynamic = (
+                    call_name in {"getattr", "setattr", "eval", "exec", "compile", "__import__"}
+                    or (isinstance(func, ast.Attribute) and func.attr in {"import_module", "run_module"})
+                    or (isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name) and func.value.id in {"self", "cls"})
+                )
+                if dynamic and (not target or relative == target) and len(unresolved) < 200:
+                    unresolved.append({
+                        "caller": identifier,
+                        "path": relative,
+                        "line": int(getattr(call, "lineno", 0) or 0),
+                        "call": _source_segment(source, call, 180),
+                        "reason": "dynamic_or_unresolved_dispatch",
+                    })
+
+    target_ids = {
+        identifier for identifier, meta in symbols.items()
+        if not target or meta["path"] == target
+    }
+    target_callers = sorted({
+        caller for identifier in target_ids for caller in reverse.get(identifier, set())
+        if caller not in target_ids
+    })
+    target_callees = sorted({
+        destination for identifier in target_ids for destination in adjacency.get(identifier, set())
+        if destination not in target_ids
+    })
+    functions = [
+        symbols[identifier] for identifier in sorted(target_ids)
+        if symbols[identifier]["kind"] != "class"
+    ]
+    return {
+        "target": target or None,
+        "node_count": len(symbols),
+        "edge_count": len(edges),
+        "functions": functions[:500],
+        "direct_callers": [symbols[item] for item in target_callers[:100] if item in symbols],
+        "direct_callees": [symbols[item] for item in target_callees[:100] if item in symbols],
+        "unresolved_calls": unresolved,
+        "warnings": sorted(set(warnings))[:40],
+        "analysis_kind": "static_ast_function_call_graph",
+    }
+
+
+def analyze_function_data_flow(
+    project_root: str | Path,
+    target_relative_path: str,
+    *,
+    max_functions: int = 120,
+) -> dict[str, Any]:
+    """Summarize function inputs, reads, writes, returns and likely side effects.
+
+    This is a conservative AST approximation, not runtime taint tracking.
+    """
+    root = Path(project_root).expanduser().resolve()
+    relative = str(target_relative_path).replace("\\", "/").strip()
+    pure = PurePosixPath(relative)
+    if not relative or pure.is_absolute() or any(part in {"", ".", ".."} for part in pure.parts):
+        raise ValueError("Для анализа данных нужен относительный путь к Python-модулю.")
+    path = root.joinpath(*pure.parts)
+    if path.is_symlink() or not path.is_file() or root not in path.resolve().parents:
+        raise ValueError(f"Модуль {relative} отсутствует или находится вне проекта.")
+    try:
+        source = path.read_text(encoding="utf-8")
+        tree = ast.parse(source, filename=relative)
+    except (OSError, UnicodeError, SyntaxError) as exc:
+        raise ValueError(f"Не удалось разобрать поток данных {relative}: {type(exc).__name__}.") from exc
+
+    summaries: list[dict[str, Any]] = []
+    warnings: list[str] = []
+
+    class FlowVisitor(ast.NodeVisitor):
+        def __init__(self) -> None:
+            self.reads: set[str] = set()
+            self.writes: set[str] = set()
+            self.global_names: set[str] = set()
+            self.returns: list[str] = []
+            self.calls: list[str] = []
+            self.side_effects: set[str] = set()
+            self.dynamic: set[str] = set()
+
+        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+            return
+
+        def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+            return
+
+        def visit_ClassDef(self, node: ast.ClassDef) -> None:
+            return
+
+        def visit_Name(self, node: ast.Name) -> None:
+            if isinstance(node.ctx, ast.Load):
+                self.reads.add(node.id)
+            elif isinstance(node.ctx, (ast.Store, ast.Del)):
+                self.writes.add(node.id)
+
+        def visit_Global(self, node: ast.Global) -> None:
+            self.global_names.update(node.names)
+
+        def visit_Attribute(self, node: ast.Attribute) -> None:
+            if isinstance(node.ctx, (ast.Store, ast.Del)):
+                try:
+                    self.writes.add(ast.unparse(node)[:120])
+                except Exception:
+                    self.writes.add(node.attr)
+            self.generic_visit(node)
+
+        def visit_Return(self, node: ast.Return) -> None:
+            if node.value is not None and len(self.returns) < 12:
+                try:
+                    self.returns.append(ast.unparse(node.value)[:180])
+                except Exception:
+                    self.returns.append(type(node.value).__name__)
+            self.generic_visit(node)
+
+        def visit_Call(self, node: ast.Call) -> None:
+            try:
+                call_text = ast.unparse(node.func)[:160]
+            except Exception:
+                call_text = type(node.func).__name__
+            if len(self.calls) < 40:
+                self.calls.append(call_text)
+            lowered = call_text.casefold()
+            if any(token in lowered for token in ("open", "read_text", "write_text", "read_bytes", "write_bytes", "mkdir", "unlink", "replace", "copy", "move", "rmtree")):
+                self.side_effects.add("file_system")
+            if any(token in lowered for token in ("requests.", "urllib.", "http.", "socket.", "urlopen", "fetch", "post", "get")):
+                self.side_effects.add("network")
+            if any(token in lowered for token in ("sqlite", "execute", "commit", "rollback", "cursor", "connect")):
+                self.side_effects.add("database")
+            if any(token in lowered for token in ("subprocess", "popen", "system", "create_subprocess")):
+                self.side_effects.add("process_execution")
+            if any(token in lowered for token in ("thread", "queue", "asyncio", "create_task", "executor")):
+                self.side_effects.add("concurrency")
+            if any(token in lowered for token in ("tkinter", "messagebox", "ttk.", ".configure", ".insert", ".delete")):
+                self.side_effects.add("user_interface")
+            if any(token in lowered for token in ("getattr", "setattr", "eval", "exec", "import_module", "__import__")):
+                self.dynamic.add(call_text)
+            self.generic_visit(node)
+
+    def add_function(node: ast.AST, owner: str = "") -> None:
+        if len(summaries) >= max(1, min(int(max_functions), 500)):
+            return
+        visitor = FlowVisitor()
+        for statement in getattr(node, "body", []):
+            visitor.visit(statement)
+        args = getattr(node, "args", None)
+        parameters = []
+        if args is not None:
+            parameters = [
+                argument.arg for argument in (
+                    list(getattr(args, "posonlyargs", []))
+                    + list(getattr(args, "args", []))
+                    + list(getattr(args, "kwonlyargs", []))
+                )
+                if argument.arg not in {"self", "cls"}
+            ]
+            if args.vararg:
+                parameters.append("*" + args.vararg.arg)
+            if args.kwarg:
+                parameters.append("**" + args.kwarg.arg)
+        name = str(getattr(node, "name", ""))
+        summaries.append({
+            "name": f"{owner}.{name}" if owner else name,
+            "line": int(getattr(node, "lineno", 0) or 0),
+            "parameters": parameters[:40],
+            "reads": sorted(visitor.reads - set(parameters))[:50],
+            "writes": sorted(visitor.writes)[:50],
+            "global_writes": sorted(visitor.global_names.intersection(visitor.writes))[:30],
+            "returns": visitor.returns,
+            "calls": sorted(set(visitor.calls))[:40],
+            "side_effects": sorted(visitor.side_effects),
+            "dynamic_operations": sorted(visitor.dynamic)[:15],
+        })
+
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            add_function(node)
+        elif isinstance(node, ast.ClassDef):
+            for child in node.body:
+                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    add_function(child, node.name)
+    if len(summaries) >= max(1, min(int(max_functions), 500)):
+        warnings.append(f"Перечень функций ограничен значением {max_functions}.")
+    if not summaries:
+        warnings.append("На верхнем уровне модуля не найдены функции или методы.")
+    if any(item["dynamic_operations"] for item in summaries):
+        warnings.append("Обнаружены динамические операции; фактическое движение данных может отличаться от статической оценки.")
+    return {
+        "target": pure.as_posix(),
+        "functions": summaries,
+        "warnings": warnings,
+        "analysis_kind": "static_ast_data_flow_approximation",
+    }
+
+
+def assess_architecture_change_impact(
+    dependency_analysis: dict[str, Any],
+    call_graph: dict[str, Any],
+    data_flow: dict[str, Any],
+) -> dict[str, Any]:
+    """Estimate change risk from affected modules, callers, side effects and unknown edges."""
+    dependents = dependency_analysis.get("transitive_dependents", [])
+    tests = dependency_analysis.get("affected_tests", [])
+    callers = call_graph.get("direct_callers", [])
+    unresolved = call_graph.get("unresolved_calls", [])
+    warnings = list(dependency_analysis.get("warnings", [])) + list(call_graph.get("warnings", [])) + list(data_flow.get("warnings", []))
+    side_effects = sorted({
+        effect
+        for function in data_flow.get("functions", [])
+        if isinstance(function, dict)
+        for effect in function.get("side_effects", [])
+    })
+    reasons: list[str] = []
+    score = 0
+    if len(dependents) >= 8:
+        score += 2
+        reasons.append(f"много косвенно зависящих модулей: {len(dependents)}")
+    elif len(dependents) >= 3:
+        score += 1
+        reasons.append(f"несколько зависящих модулей: {len(dependents)}")
+    if len(callers) >= 6:
+        score += 2
+        reasons.append(f"много обнаруженных вызывающих функций: {len(callers)}")
+    elif callers:
+        score += 1
+        reasons.append(f"обнаружены вызывающие функции: {len(callers)}")
+    if unresolved:
+        score += 2
+        reasons.append(f"не удалось разрешить часть динамических/неоднозначных вызовов: {len(unresolved)}")
+    if side_effects:
+        score += 1
+        reasons.append("изменяемый модуль имеет побочные эффекты: " + ", ".join(side_effects))
+    if not tests:
+        score += 1
+        reasons.append("автоматические связанные тесты статически не обнаружены")
+    if warnings:
+        score += 1
+        reasons.append("анализ содержит предупреждения или неполные данные")
+    level = "high" if score >= 5 else "medium" if score >= 2 else "low"
+    return {
+        "risk_level": level,
+        "risk_score_heuristic": score,
+        "reasons": reasons or ["значимые факторы риска статическим анализом не обнаружены"],
+        "affected_modules": len(dependents) + 1,
+        "affected_tests": len(tests),
+        "unresolved_calls": len(unresolved),
+        "side_effects": side_effects,
+        "confidence": "limited_static_analysis",
+    }
+
+
+def build_architecture_intelligence_context(
+    project_root: str | Path,
+    target_relative_path: str,
+    *,
+    max_chars: int = 6500,
+) -> str:
+    """Create bounded call-flow, data-flow, impact and uncertainty context for a coding model."""
+    root = Path(project_root).expanduser().resolve()
+    relative = str(target_relative_path).replace("\\", "/").strip()
+    dependency = analyze_module_dependencies(root, relative)
+    graph = build_function_call_graph(root, relative)
+    flow = analyze_function_data_flow(root, relative)
+    impact = assess_architecture_change_impact(dependency, graph, flow)
+
+    lines = [
+        "ГЛУБОКИЙ АРХИТЕКТУРНЫЙ КОНТЕКСТ (статический анализ, исходный код не исполнялся)",
+        f"Целевой модуль: {relative}",
+        f"Оценка риска изменения: {impact['risk_level']} (эвристика, не гарантия безопасности)",
+        "Факторы риска: " + "; ".join(impact["reasons"][:8]),
+    ]
+    callers = graph.get("direct_callers", [])
+    lines.append("Найденные вызывающие функции: " + (
+        "; ".join(f"{row.get('path')}::{row.get('qualname')} [стр. {row.get('line')}]" for row in callers[:18])
+        if callers else "не обнаружены статическим поиском"
+    ))
+    callees = graph.get("direct_callees", [])
+    lines.append("Внешние для выбранного файла вызываемые функции: " + (
+        "; ".join(f"{row.get('path')}::{row.get('qualname')}" for row in callees[:18])
+        if callees else "не обнаружены статическим поиском"
+    ))
+    for function in flow.get("functions", [])[:35]:
+        if not isinstance(function, dict):
+            continue
+        effects = ", ".join(function.get("side_effects", [])) or "не выявлены"
+        parameters = ", ".join(function.get("parameters", [])) or "нет явных параметров"
+        writes = ", ".join(function.get("writes", [])[:12]) or "не выявлены"
+        returns = "; ".join(function.get("returns", [])[:4]) or "явный return не обнаружен"
+        lines.append(
+            f"Поток {function.get('name')} [стр. {function.get('line')}]: "
+            f"входы=({parameters}); записи=({writes}); возврат=({returns}); побочные эффекты=({effects})"
+        )
+    unknowns = graph.get("unresolved_calls", [])
+    if unknowns:
+        lines.append("НЕРАЗРЕШЁННЫЕ ВЫЗОВЫ: " + "; ".join(
+            f"{item.get('path')}:{item.get('line')} {item.get('call')}" for item in unknowns[:12]
+        ))
+    warnings = list(dependency.get("warnings", [])) + list(graph.get("warnings", [])) + list(flow.get("warnings", []))
+    warnings = list(dict.fromkeys(str(item) for item in warnings if item))
+    lines.append("ПРОБЕЛЫ И НЕОПРЕДЕЛЁННОСТЬ: " + (
+        " | ".join(warnings[:10]) if warnings else "явных предупреждений статического анализа нет"
+    ))
+    lines.append(
+        "ОГРАНИЧЕНИЕ: карта импортов, вызовов и потоков данных неполная для reflection, "
+        "динамических импортов, callback, monkey-patching и runtime-зависимостей. "
+        "Не делай вывод о безопасности или отсутствии влияния только по отсутствию ребра."
+    )
+    result = "\n".join(lines)
+    limit = max(1200, int(max_chars))
+    return result if len(result) <= limit else result[:limit - 100] + "\n… архитектурный контекст сокращён по лимиту."
+
+

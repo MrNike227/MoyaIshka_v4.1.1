@@ -8,6 +8,10 @@ from module_dependency_analyzer import (
     format_dependency_report,
     build_project_architecture_index,
     format_project_architecture_index,
+    build_function_call_graph,
+    analyze_function_data_flow,
+    assess_architecture_change_impact,
+    build_architecture_intelligence_context,
 )
 
 
@@ -139,6 +143,47 @@ class ModuleDependencyAnalyzerTests(unittest.TestCase):
             (root / "broken.py").write_text("def unfinished(:\n", encoding="utf-8")
             result = analyze_module_dependencies(root, "target.py")
             self.assertTrue(any("broken.py" in item for item in result["warnings"]))
+
+
+    def test_function_call_graph_resolves_local_and_imported_calls(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.make_project(root)
+            graph = build_function_call_graph(root, "pkg/core.py")
+            caller_paths = [item["path"] for item in graph["direct_callers"]]
+            self.assertEqual(caller_paths, ["pkg/service.py"])
+            service = build_function_call_graph(root, "pkg/service.py")
+            self.assertTrue(any(item["name"] == "calculate" for item in service["direct_callees"]))
+
+    def test_function_data_flow_reports_inputs_writes_returns_and_effects(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "worker.py").write_text(
+                "def save(path, value):\n"
+                "    result = open(path, 'w')\n"
+                "    result.write(value)\n"
+                "    return result.name\n",
+                encoding="utf-8",
+            )
+            result = analyze_function_data_flow(root, "worker.py")
+            function = result["functions"][0]
+            self.assertEqual(function["parameters"], ["path", "value"])
+            self.assertIn("result", function["writes"])
+            self.assertIn("file_system", function["side_effects"])
+            self.assertEqual(function["returns"], ["result.name"])
+
+    def test_architecture_impact_and_context_report_uncertainty(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.make_project(root)
+            dependency = analyze_module_dependencies(root, "pkg/core.py")
+            graph = build_function_call_graph(root, "pkg/core.py")
+            flow = analyze_function_data_flow(root, "pkg/core.py")
+            impact = assess_architecture_change_impact(dependency, graph, flow)
+            context = build_architecture_intelligence_context(root, "pkg/core.py")
+            self.assertIn(impact["risk_level"], {"low", "medium", "high"})
+            self.assertIn("ОГРАНИЧЕНИЕ", context)
+            self.assertIn("вызывающие функции", context)
 
 
 if __name__ == "__main__":

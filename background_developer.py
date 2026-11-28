@@ -10,7 +10,19 @@ from typing import Any, Callable
 
 from improvement_delivery import load_chat_improvement_ideas, save_multi_change_bundle
 from improvement_testing import test_change_bundle
-from module_dependency_analyzer import (analyze_module_dependencies, build_dependency_context, format_dependency_report, build_project_architecture_index, format_project_architecture_index)
+from module_dependency_analyzer import (
+    analyze_module_dependencies,
+    build_architecture_intelligence_context,
+    build_dependency_context,
+    format_dependency_report,
+    build_project_architecture_index,
+    format_project_architecture_index,
+)
+from architecture_knowledge import (
+    format_recent_architecture_lessons,
+    record_architecture_lesson,
+    refresh_architecture_knowledge,
+)
 from self_improvement import (
     MAX_SELF_IMPROVEMENT_CONTEXT_CHARS,
     apply_multi_file_unified_diff,
@@ -145,6 +157,22 @@ def run_background_development(
     dependency_report = format_dependency_report(dependency_analysis)
     architecture_index = build_project_architecture_index(root)
     architecture_context = format_project_architecture_index(architecture_index, max_chars=9000)
+    architecture_intelligence = build_architecture_intelligence_context(
+        root, relative, max_chars=7000,
+    )
+    try:
+        knowledge_status = refresh_architecture_knowledge(updates, root, architecture_index)
+        knowledge_lessons = format_recent_architecture_lessons(updates, limit=8)
+    except (OSError, ValueError):
+        knowledge_status = {}
+        knowledge_lessons = ""
+    if knowledge_status.get("changed_files") or knowledge_status.get("added_files") or knowledge_status.get("removed_files"):
+        changed_paths = (
+            list(knowledge_status.get("added_files", []))
+            + list(knowledge_status.get("changed_files", []))
+            + list(knowledge_status.get("removed_files", []))
+        )
+        architecture_context += "\n\nИзменения структуры с прошлого сканирования: " + ", ".join(str(item) for item in changed_paths[:20])
     dependency_context = build_dependency_context(
         root, dependency_analysis, prompt=review_task,
         max_chars=int(MAX_SELF_IMPROVEMENT_CONTEXT_CHARS * 0.22),
@@ -159,7 +187,7 @@ def run_background_development(
         "или незаявленную передачу данных. Ищи ошибки логики, граничные случаи, надёжность, читаемость, "
         "типизацию, тестируемость, производительность и реальные полезные функции. Предлагай только то, "
         "что подтверждается контекстом. Отдавай приоритет законченному улучшению с измеримой пользой, "
-        "а не косметическому рефакторингу. Учитывай карту импортов, прямых и косвенных потребителей и тестов; "
+        "а не косметическому рефакторингу. Перед выводами проверь входы/выходы функций, вызовы, побочные эффекты и движение данных; помечай неразрешённые динамические связи как пробелы знаний. Учитывай карту импортов, прямых и косвенных потребителей и тестов; "
         "статический анализ не видит все динамические связи. Не выдумывай соседние API и файлы. Верни до трёх конкретных "
         "предложений только в JSON: "
         '{"suggestions":[{"title":"...","location":"file.py.Class.method","problem":"...","current":"точный участок","proposed":"конкретная замена","benefit":"..."}]}. '
@@ -168,6 +196,7 @@ def run_background_development(
     user_content = (
         f"Целевой файл: {relative}\n\nКАРТА СВЯЗЕЙ И ВОЗМОЖНОГО ВЛИЯНИЯ:\n"
         f"{dependency_report}\n\nКАРТА ВСЕГО ПРОЕКТА:\n{architecture_context}\n\n"
+        f"ГЛУБОКИЙ АНАЛИЗ ВЫЗОВОВ, ДАННЫХ И РИСКОВ:\n{architecture_intelligence}\n\n"
         f"КОНТЕКСТ СВЯЗАННЫХ МОДУЛЕЙ:\n{dependency_context}\n\n"
         f"Код целевого модуля:\n{model_context}"
     )
@@ -177,6 +206,8 @@ def run_background_development(
             "\n\nОПЫТ ПРЕДЫДУЩИХ ПОПЫТОК (учти причины отказов, не повторяй те же ошибки):\n"
             + "\n".join(f"- {item}" for item in lessons)
         )
+    if knowledge_lessons:
+        user_content += "\n\n" + knowledge_lessons
     ideas = load_chat_improvement_ideas(updates)
     if ideas:
         user_content += (
@@ -215,6 +246,10 @@ def run_background_development(
             "message": "Анализ завершён: надёжных улучшений для выбранного файла не найдено.",
         }
         result["history_path"] = str(_record_result(updates, result))
+        try:
+            record_architecture_lesson(updates, result)
+        except (OSError, ValueError):
+            pass
         return result
 
     # Do one bounded implementation cycle per scheduled run. The user can review
@@ -227,7 +262,7 @@ def run_background_development(
         f"Ожидаемый результат: {suggestion['proposed']}\n"
         f"Польза: {suggestion['benefit']}\n"
         "Подготовь минимальную, но завершённую реализацию. Сохрани совместимость с существующим поведением. "
-        "Учитывай карту зависимостей и API вызывающих модулей; не ломай их контракты и обязательно учти затронутые тесты."
+        "Учитывай карту зависимостей и API вызывающих модулей; не ломай их контракты и обязательно учти затронутые тесты. Перед diff сверь параметры, возвраты, чтение/запись состояния, побочные эффекты и известные точки вызова. Если связь не установлена статически, не считай её отсутствующей и не придумывай поведение."
     )
     test_relative = related_test_path(relative)
     test_path = root / Path(*Path(test_relative).parts)
@@ -307,7 +342,7 @@ def run_background_development(
         "для нового теста — --- /dev/null и +++ b/tests/test_имя.py. "
         "Каждому пути разрешена ровно одна пара заголовков ---/+++; помести все изменения этого файла в эту секцию и не повторяй путь. Каждая строка diff должна иметь маркер пробела, + или -. Не удаляй и не переименовывай файлы. "
         "Выводи только diff. Если нельзя создать корректный тест, верни UNABLE_TO_CREATE_PATCH. "
-        "Перед реализацией учитывай карту связей проекта и контекст прямых/косвенных потребителей. "
+        "Перед реализацией проверь контракт изменяемых функций: входы, возвраты, записи состояния, побочные эффекты и вызывающие места. После реализации повторно сравни изменённый контракт с потребителями и тестами; при нехватке данных не выдумывай API и используй UNABLE_TO_CREATE_PATCH с кратким объяснением. Учитывай, что статическая карта не видит все динамические вызовы. "
         "Python 3.10+, Windows 10."
     )
     change_messages = [
@@ -358,6 +393,10 @@ def run_background_development(
     # Role 4: independent reviewer checks the actual patch and test evidence.
     review_payload = {
         "patch": patch[:24000],
+        "architecture_context": architecture_intelligence[:7000],
+        "dependency_report": dependency_report[:5000],
+        "target": relative,
+        "changed_files": list(updated_files),
         "test_passed": bool(report.get("passed")),
         "tests_run": int(report.get("tests_run", 0) or 0),
         "failures": int(report.get("failures", 0) or 0),
@@ -369,7 +408,7 @@ def run_background_development(
         {"role": "system", "content": (
             "РОЛЬ: НЕЗАВИСИМЫЙ РЕВИЗОР. Ты не автор изменения. Проверь diff на ошибки логики, "
             "регрессии API, безопасность, обработку границ, качество тестов и соответствие задаче. "
-            "Не доверяй заключению программиста. Если тесты не прошли или не запускались, approved=false. "
+            "Сопоставь фактически изменённые функции с архитектурной картой: проверь вызывающие места, входы/выходы, побочные эффекты, данные и известные пробелы. Не доверяй заключению программиста. Если тесты не прошли или не запускались, approved=false. "
             "Не выполняй код и не предлагай скрытые действия. Верни только JSON: "
             '{"approved":true,"summary":"...","findings":[]} или approved=false при существенной проблеме.'
         )},
@@ -421,4 +460,8 @@ def run_background_development(
         ),
     }
     result["history_path"] = str(_record_result(updates, result))
+    try:
+        record_architecture_lesson(updates, result)
+    except (OSError, ValueError):
+        pass
     return result

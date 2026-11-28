@@ -277,7 +277,7 @@ class PatchTests(unittest.TestCase):
             captured.update(url=url, payload=payload, timeout=timeout)
             return {"message": {"content": "diff"}}
 
-        with patch.object(main, "post_json", side_effect=fake_post_json):
+        with patch.object(__import__("chat_interface"), "post_json", side_effect=fake_post_json):
             result = main.ISHApp._call_ollama(
                 {
                     "ollama_url": "http://localhost:11434",
@@ -302,7 +302,7 @@ class PatchTests(unittest.TestCase):
             captured.update(payload=payload, timeout=timeout)
             return {"message": {"content": "ok"}}
 
-        with patch.object(main, "post_json", side_effect=fake_post_json):
+        with patch.object(__import__("chat_interface"), "post_json", side_effect=fake_post_json):
             main.ISHApp._call_ollama(
                 {
                     "ollama_url": "http://localhost:11434",
@@ -473,11 +473,11 @@ class PluginTests(unittest.TestCase):
 
 
 class UtilityTests(unittest.TestCase):
-    def test_application_release_version_is_430(self):
+    def test_application_release_version_is_431(self):
         import sys
         sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
         from main import APP_VERSION
-        self.assertEqual(APP_VERSION, "4.3.0")
+        self.assertEqual(APP_VERSION, "4.3.1")
 
     def test_saved_container_overrides_legacy_install_directory(self):
         import main
